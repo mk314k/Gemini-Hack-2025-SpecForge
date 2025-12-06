@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import InputForm from './components/InputForm';
 import DesignDisplay from './components/DesignDisplay';
@@ -38,7 +39,6 @@ const App: React.FC = () => {
         const hasKey = await window.aistudio.hasSelectedApiKey();
         setHasApiKey(hasKey);
       } catch (e) {
-        // Fallback if API not available immediately
         console.warn("AI Studio API check failed", e);
       }
     }
@@ -84,7 +84,8 @@ const App: React.FC = () => {
     setData(null);
 
     try {
-      const result = await generateDesignPacket(description, productType);
+      // Pass the setStatus callback to the service to update UI during steps
+      const result = await generateDesignPacket(description, productType, (s) => setStatus(s));
       setData(result);
       setStatus('complete');
       saveRecent(result);
@@ -126,6 +127,7 @@ const App: React.FC = () => {
             table { width: 100%; border-collapse: collapse; margin-top: 16px; }
             th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e2e8f0; }
             th { background: #f8fafc; font-weight: 600; }
+            pre { background: #1e293b; color: #cbd5e1; padding: 16px; border-radius: 8px; overflow-x: auto; }
         </style>
       </head>
       <body>
@@ -144,6 +146,16 @@ const App: React.FC = () => {
                 </div>
             `).join('')}
         </div>
+
+        ${data.videoUrl ? `
+           <h2>Concept Video</h2>
+           <p><a href="${data.videoUrl}" target="_blank">Download Generated Veo Video</a></p>
+        ` : ''}
+
+        ${data.implementationCode ? `
+            <h2>Generated Implementation (${data.implementationCode.language})</h2>
+            <pre>${data.implementationCode.code}</pre>
+        ` : ''}
 
         <h2>Parts List</h2>
         <table>
@@ -178,7 +190,7 @@ const App: React.FC = () => {
            <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto text-2xl">🔑</div>
            <div>
              <h2 className="text-2xl font-bold text-slate-800 mb-2">API Key Required</h2>
-             <p className="text-slate-600">To start the Product Factory, please select a Google Cloud Project API Key. This enables <strong>Gemini 3</strong> and <strong>Nano Banana Pro</strong>.</p>
+             <p className="text-slate-600">To start the Product Factory, please select a Google Cloud Project API Key. This enables <strong>Gemini 3</strong>, <strong>Nano Banana Pro</strong>, and <strong>Veo</strong>.</p>
            </div>
            <button onClick={handleSelectKey} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-xl">Select API Key</button>
            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="block text-xs text-blue-500 underline">View Billing Documentation</a>
@@ -207,7 +219,6 @@ const App: React.FC = () => {
                     >
                         Factory Home
                     </button>
-                    {/* Placeholder for future router integration */}
                     <span className="text-sm font-medium text-slate-400 cursor-help" title="Check the examples folder in the source code">Examples</span>
                 </div>
             </div>
@@ -260,7 +271,7 @@ const App: React.FC = () => {
            </div>
         )}
 
-        {(status === 'spec' || status === 'images' || status === 'audit') && (
+        {(status === 'spec' || status === 'images' || status === 'code' || status === 'video' || status === 'audit') && (
             <div className="flex flex-col items-center justify-center h-[60vh] space-y-8 animate-pulse">
                 <div className="relative w-32 h-32">
                     <div className="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
@@ -268,6 +279,8 @@ const App: React.FC = () => {
                     <div className="absolute inset-0 flex items-center justify-center text-4xl">
                         {status === 'spec' && '📝'}
                         {status === 'images' && '🎨'}
+                        {status === 'code' && '💻'}
+                        {status === 'video' && '🎥'}
                         {status === 'audit' && '🔍'}
                     </div>
                 </div>
@@ -275,11 +288,15 @@ const App: React.FC = () => {
                     <h2 className="text-3xl font-bold text-slate-800 tracking-tight">
                         {status === 'spec' && 'Drafting Specifications...'}
                         {status === 'images' && 'Rendering Blueprints...'}
+                        {status === 'code' && 'Writing Firmware & Pitch...'}
+                        {status === 'video' && 'Filming Product Commercial (Veo)...'}
                         {status === 'audit' && 'Verifying Integrity...'}
                     </h2>
                     <p className="text-slate-500 max-w-md mx-auto">
                         {status === 'spec' && 'Gemini 3 is structuring your requirements into an engineering format.'}
                         {status === 'images' && 'Nano Banana Pro is generating technical views based on the spec.'}
+                        {status === 'code' && 'Writing the code logic and generating a voiceover pitch.'}
+                        {status === 'video' && 'Generating a cinematic 5-second video preview using Veo.'}
                         {status === 'audit' && 'Running a self-correction loop to ensure the diagrams match the requirements.'}
                     </p>
                 </div>

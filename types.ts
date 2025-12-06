@@ -1,3 +1,4 @@
+
 export interface ProductSpec {
   productName: string;
   productType: "physical" | "robotic" | "mechanical" | "digital";
@@ -43,10 +44,19 @@ export interface SelfCheckResult {
   correctedSpec: ProductSpec | null;
 }
 
+export interface GeneratedCode {
+  language: string;
+  code: string;
+  explanation: string;
+}
+
 export interface DesignResponse {
   spec: ProductSpec;
   images: GeneratedImage[];
   selfCheck: SelfCheckResult;
+  implementationCode?: GeneratedCode;
+  marketingPitchUrl?: string; // Base64 Audio
+  videoUrl?: string; // URL for Veo video
 }
 
-export type GenerationStatus = "idle" | "spec" | "images" | "audit" | "complete" | "error";
+export type GenerationStatus = "idle" | "spec" | "images" | "code" | "video" | "audit" | "complete" | "error";

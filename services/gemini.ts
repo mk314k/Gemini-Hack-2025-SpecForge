@@ -1,5 +1,6 @@
-import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { ProductSpec, DesignResponse, GeneratedImage, SelfCheckResult } from "../types";
+
+import { GoogleGenAI, Type, Schema, Modality } from "@google/genai";
+import { ProductSpec, DesignResponse, GeneratedImage, SelfCheckResult, GeneratedCode, GenerationStatus } from "../types";
 
 const SPEC_SYSTEM_INSTRUCTION = `
 You are a senior engineering architect. 
@@ -72,6 +73,16 @@ const PRODUCT_SPEC_SCHEMA: Schema = {
   ],
 };
 
+const CODE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    language: { type: Type.STRING },
+    code: { type: Type.STRING },
+    explanation: { type: Type.STRING }
+  },
+  required: ["language", "code", "explanation"]
+};
+
 const AUDIT_SYSTEM_INSTRUCTION = `
 You are a QA and Systems Validation Engineer. 
 Review the provided Engineering Spec and the descriptions of generated diagrams. 
@@ -79,10 +90,16 @@ Identify inconsistencies, logic errors, missing constraints, or physical impossi
 Output your findings in JSON format with two fields: 'issues' (array of strings) and 'correctedSpec' (the full ProductSpec object with fixes applied).
 `;
 
-export async function generateDesignPacket(description: string, productType: string): Promise<DesignResponse> {
+export async function generateDesignPacket(
+  description: string, 
+  productType: string, 
+  onStatusChange?: (status: GenerationStatus) => void
+): Promise<DesignResponse> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const setStatus = (s: GenerationStatus) => onStatusChange && onStatusChange(s);
 
-  console.log(`[1/3] Generating Spec for: ${productType}...`);
+  console.log(`[1/5] Generating Spec for: ${productType}...`);
+  setStatus('spec');
 
   // --- STEP 1: Generate Spec ---
   const specResponse = await ai.models.generateContent({
@@ -100,37 +117,27 @@ export async function generateDesignPacket(description: string, productType: str
   
   try {
     spec = JSON.parse(specText) as ProductSpec;
-    
-    // Fallback for fields that might be null despite schema (safety net)
     if (!spec.constraints) spec.constraints = {};
     if (!spec.diagramsPlan) spec.diagramsPlan = [];
     if (!spec.partsList) spec.partsList = [];
-
   } catch (e) {
     console.error("Failed to parse spec JSON", e);
     throw new Error("Failed to generate valid spec");
   }
 
   // --- STEP 2: Generate Images (Nano Banana Pro) ---
-  console.log(`[2/3] Generating ${spec.diagramsPlan.length} diagrams...`);
+  console.log(`[2/5] Generating ${spec.diagramsPlan.length} diagrams...`);
+  setStatus('images');
+  
   const generatedImages: GeneratedImage[] = [];
-
   const imagePromises = spec.diagramsPlan.map(async (plan) => {
     if (!plan || !plan.title) return null;
-    
     try {
-      // Improved prompt for technical diagrams
       const imagePrompt = `Technical engineering drawing, blueprint style, ${plan.diagramType} view of ${plan.title}. ${plan.descriptionForImageModel}. High contrast, white background, schematic labels, technical illustration.`;
-      
       const imgResponse = await ai.models.generateContent({
         model: "gemini-3-pro-image-preview",
         contents: imagePrompt,
-        config: {
-          imageConfig: {
-            aspectRatio: "4:3",
-            imageSize: "1K"
-          }
-        }
+        config: { imageConfig: { aspectRatio: "4:3", imageSize: "1K" } }
       });
 
       let imageUrl = "";
@@ -162,29 +169,106 @@ export async function generateDesignPacket(description: string, productType: str
   const results = await Promise.all(imagePromises);
   generatedImages.push(...(results.filter((img) => img !== null) as GeneratedImage[]));
 
-  // --- STEP 3: Self-Check Loop ---
-  console.log(`[3/3] Running Self-Check Audit...`);
+  // --- STEP 3: Generate Implementation Code & Audio Pitch ---
+  console.log(`[3/5] Generating Implementation Code & Marketing Pitch...`);
+  setStatus('code');
+  
+  const codePromise = (async () => {
+    const codePrompt = `
+      Create a core implementation snippet for this ${productType}.
+      If it's Physical/Robotic: Generate Arduino C++ or Python firmware logic.
+      If it's Digital: Generate a React/TypeScript component.
+      Product Context: ${spec.summary}
+      Key Requirements: ${spec.keyRequirements.join(", ")}
+      Return JSON with 'language' (use 'cpp' for Arduino, 'python' for Python, 'tsx' for React), 'code', and 'explanation'.
+    `;
+    const codeResp = await ai.models.generateContent({
+        model: "gemini-3-pro-preview",
+        contents: codePrompt,
+        config: { responseMimeType: "application/json", responseSchema: CODE_SCHEMA }
+    });
+    try { return JSON.parse(codeResp.text || "{}") as GeneratedCode; } catch { return undefined; }
+  })();
+
+  const pitchPromise = (async () => {
+    const pitchPrompt = `Write a short, punchy, exciting 30-second "Shark Tank" style pitch for the ${spec.productName}. Focus on the problem it solves: ${spec.summary}.`;
+    try {
+        const audioResp = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: pitchPrompt,
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } }
+            }
+        });
+        const audioData = audioResp.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        return audioData ? `data:audio/wav;base64,${audioData}` : undefined;
+    } catch (e) {
+        console.warn("Audio generation failed", e);
+        return undefined;
+    }
+  })();
+
+  const [generatedCode, marketingPitchUrl] = await Promise.all([codePromise, pitchPromise]);
+
+  // --- STEP 4: Generate Video (Veo) ---
+  console.log(`[4/5] Generating Veo Video...`);
+  setStatus('video');
+  let videoUrl: string | undefined = undefined;
+
+  try {
+    const videoPrompt = `Cinematic product commercial for ${spec.productName}, ${spec.summary}. High tech, futuristic, 4k, slow motion product reveal.`;
+    
+    // Start Veo generation
+    let operation = await ai.models.generateVideos({
+      model: 'veo-3.1-fast-generate-preview',
+      prompt: videoPrompt,
+      config: {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: '16:9'
+      }
+    });
+
+    // Poll for completion
+    let attempts = 0;
+    while (!operation.done && attempts < 30) { // Max 5 mins roughly
+      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10s
+      operation = await ai.operations.getVideosOperation({operation});
+      attempts++;
+    }
+
+    if (operation.done && operation.response?.generatedVideos?.[0]?.video?.uri) {
+       // Append API key to the download link as per documentation
+       const rawUri = operation.response.generatedVideos[0].video.uri;
+       videoUrl = `${rawUri}&key=${process.env.API_KEY}`;
+    }
+  } catch (e) {
+    console.warn("Video generation failed (skipping)", e);
+  }
+
+
+  // --- STEP 5: Self-Check Loop ---
+  console.log(`[5/5] Running Self-Check Audit...`);
+  setStatus('audit');
   
   const imageContext = generatedImages.length > 0 
     ? generatedImages.map(img => `Generated Image (${img.diagramType}): ${img.title}`).join("\n")
-    : "No images were generated (generation failed).";
+    : "No images were generated.";
 
   const auditPrompt = `
   CURRENT SPEC:
   ${JSON.stringify(spec, null, 2)}
-
   GENERATED DIAGRAMS CONTEXT:
   ${imageContext}
-
   Perform a consistency check. Return JSON with 'issues' and 'correctedSpec'.
   `;
 
-  // We reuse the schema for self-check structure to ensure robustness
   const AUDIT_SCHEMA: Schema = {
     type: Type.OBJECT,
     properties: {
       issues: { type: Type.ARRAY, items: { type: Type.STRING } },
-      correctedSpec: PRODUCT_SPEC_SCHEMA // Reuse the full product spec schema
+      correctedSpec: PRODUCT_SPEC_SCHEMA
     },
     required: ["issues", "correctedSpec"]
   };
@@ -199,12 +283,10 @@ export async function generateDesignPacket(description: string, productType: str
     },
   });
 
-  const auditText = auditResponse.text || "{}";
   let selfCheck: SelfCheckResult;
   try {
-     selfCheck = JSON.parse(auditText) as SelfCheckResult;
+     selfCheck = JSON.parse(auditResponse.text || "{}") as SelfCheckResult;
   } catch (e) {
-    console.warn("Failed to parse audit JSON, returning empty check", e);
     selfCheck = { issues: [], correctedSpec: spec };
   }
 
@@ -212,5 +294,8 @@ export async function generateDesignPacket(description: string, productType: str
     spec,
     images: generatedImages,
     selfCheck,
+    implementationCode: generatedCode,
+    marketingPitchUrl,
+    videoUrl
   };
 }
