@@ -40,6 +40,7 @@ const App: React.FC = () => {
 
   const loadRecents = async () => {
     try {
+      // Load from IndexedDB instead of localStorage
       const designs = await getRecentDesigns();
       setRecents(designs);
     } catch (e) {
@@ -58,6 +59,7 @@ const App: React.FC = () => {
     };
     
     try {
+      // Save to IndexedDB (async)
       await saveRecentDesign(newItem);
       // Reload from DB to ensure sync and correct ordering
       await loadRecents();

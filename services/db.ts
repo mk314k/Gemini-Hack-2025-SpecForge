@@ -36,7 +36,6 @@ export const saveRecentDesign = async (design: RecentDesign): Promise<void> => {
     });
   } catch (e) {
     console.error("Failed to save to IndexedDB", e);
-    // Fallback or silent fail to prevent app crash
   }
 };
 
