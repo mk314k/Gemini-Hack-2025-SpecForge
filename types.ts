@@ -59,4 +59,12 @@ export interface DesignResponse {
   videoUrl?: string; // URL for Veo video
 }
 
+export interface RecentDesign {
+  id: string;
+  date: string;
+  productName: string;
+  type: string;
+  data: DesignResponse;
+}
+
 export type GenerationStatus = "idle" | "spec" | "images" | "code" | "video" | "audit" | "complete" | "error";

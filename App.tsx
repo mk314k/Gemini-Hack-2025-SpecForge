@@ -2,8 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import InputForm from './components/InputForm';
 import DesignDisplay from './components/DesignDisplay';
-import { DesignResponse, GenerationStatus } from './types';
+import { DesignResponse, GenerationStatus, RecentDesign } from './types';
 import { generateDesignPacket } from './services/gemini';
+import { getRecentDesigns, saveRecentDesign } from './services/db';
 
 // Define the AIStudio interface
 declare global {
@@ -11,14 +12,6 @@ declare global {
     hasSelectedApiKey: () => Promise<boolean>;
     openSelectKey: () => Promise<void>;
   }
-}
-
-interface RecentDesign {
-  id: string;
-  date: string;
-  productName: string;
-  type: string;
-  data: DesignResponse;
 }
 
 const App: React.FC = () => {
@@ -45,18 +38,16 @@ const App: React.FC = () => {
     setCheckingKey(false);
   };
 
-  const loadRecents = () => {
+  const loadRecents = async () => {
     try {
-      const saved = localStorage.getItem('str_recents');
-      if (saved) {
-        setRecents(JSON.parse(saved));
-      }
+      const designs = await getRecentDesigns();
+      setRecents(designs);
     } catch (e) {
       console.error("Failed to load recents", e);
     }
   };
 
-  const saveRecent = (response: DesignResponse) => {
+  const handleSaveRecent = async (response: DesignResponse) => {
     const spec = response.selfCheck.correctedSpec || response.spec;
     const newItem: RecentDesign = {
       id: Date.now().toString(),
@@ -66,10 +57,13 @@ const App: React.FC = () => {
       data: response
     };
     
-    // Keep last 6 items
-    const updated = [newItem, ...recents].slice(0, 6); 
-    setRecents(updated);
-    localStorage.setItem('str_recents', JSON.stringify(updated));
+    try {
+      await saveRecentDesign(newItem);
+      // Reload from DB to ensure sync and correct ordering
+      await loadRecents();
+    } catch (e) {
+      console.error("Error saving recent design", e);
+    }
   };
 
   const handleSelectKey = async () => {
@@ -88,7 +82,7 @@ const App: React.FC = () => {
       const result = await generateDesignPacket(description, productType, (s) => setStatus(s));
       setData(result);
       setStatus('complete');
-      saveRecent(result);
+      handleSaveRecent(result);
     } catch (e) {
       console.error("Generation error:", e);
       setStatus('error');
